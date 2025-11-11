@@ -153,11 +153,12 @@ filtered = filtered[
     (filtered["prix_num"] <= price_range[1])
 ]
 
-# Réduction : filtre seulement si reduction_num est numérique
+# Réduction : filtre seulement si reduction_num est numérique ET ≤ reduc_min
 if pd.notna(reduc_min):
+    # Convertir en float et ignorer les NaN
     filtered = filtered[
-        (pd.notna(filtered["reduction_num"])) &  # ✅ Correction ici
-        (filtered["reduction_num"] <= reduc_min)
+        (pd.to_numeric(filtered["reduction_num"], errors="coerce").notna()) &
+        (pd.to_numeric(filtered["reduction_num"], errors="coerce") <= reduc_min)
     ]
 else:
     # Si aucun filtre sur réduction, ne rien faire
