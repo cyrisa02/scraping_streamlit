@@ -1,140 +1,225 @@
+# utils/scraper_utils.py
 import json
 import os
-from typing import List, Set, Tuple
 import asyncio
+import re
+from typing import List, Set, Tuple, Optional
 
-from crawl4ai import (
-    AsyncWebCrawler,
-    BrowserConfig, 
-    CacheMode,
-    CrawlerRunConfig,
-    LLMExtractionStrategy,
-)
+# --- Modèle fallback ---
+try:
+    from models.vetement_ski import VetementSki
+except ImportError:
+    from pydantic import BaseModel
 
-from models.salle_sport import SalleDeSport
-from utils.data_utils import is_complete_salle, is_duplicate_salle
+    class VetementSki(BaseModel):
+        modele: str
+        description: str
+        prix: str
 
 
-def get_browser_config() -> BrowserConfig:
-    """Configure le navigateur pour le crawling"""
-    return BrowserConfig(
-        browser_type="chromium",  # Type de navigateur à simuler
-        headless=False,  # Mode sans interface graphique
-        verbose=True,  # Active les logs détaillés
+# --- Utils fallback ---
+def is_complete_vetement(vetement: dict, required_keys: List[str]) -> bool:
+    return all(vetement.get(k) and str(vetement[k]).strip() for k in required_keys)
+
+
+def is_duplicate_vetement(modele: str, modeles_vus: Set[str]) -> bool:
+    clean = str(modele).strip().lower()
+    return clean in {m.strip().lower() for m in modeles_vus}
+
+
+# --- CONFIG BROWSER ---
+def get_browser_config():
+    return {
+        "browser_type": "chromium",
+        "headless": True,
+        "verbose": False,
+        "disable_images": True,
+        "disable_webrtc": True,
+        "block_urls": [
+            "*.google-analytics.com",
+            "*.googletagmanager.com",
+            "*.hotjar.com",
+            "*.doubleclick.net",
+            "*.facebook.com",
+            "*.trbo.com",
+            "*/analytics/*",
+            "*/tracking/*",
+        ],
+    }
+
+
+# --- STRATÉGIE LLM — CORRIGÉE POUR OPENROUTER ---
+def get_llm_strategy(required_keys: Optional[List[str]] = None) -> "LLMExtractionStrategy":
+    # ✅ Import local pour éviter NameError
+    from crawl4ai.extraction_strategy import LLMExtractionStrategy
+
+    # 🔑 Headers requis par OpenRouter (via litellm)
+    os.environ.setdefault("OPENROUTER_SITE_URL", "https://skiwebshop.fr")
+    os.environ.setdefault("OPENROUTER_APP_NAME", "SkiScraper")
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "modele": {"type": "string"},
+                        "description": {"type": "string"},
+                        "prix": {"type": "string"},
+                    },
+                    "required": ["modele", "description", "prix"],
+                    "additionalProperties": False,
+                }
+            }
+        },
+        "required": ["items"],
+    }
+
+    instruction = (
+        "Tu es un expert HTML. Extrait TOUS les vêtements de la liste.\n"
+        "Pour chaque produit :\n"
+        "- 'modele' → texte de <h3 class=\"product-name\"> ou <a> contenant le nom\n"
+        "- 'description' → texte de <p class=\"product-description\"> ou similaire\n"
+        "- 'prix' → contenu de <span class=\"price\"> ou <span class=\"price-value\">, nettoyé (ex: '53.90')\n"
+        "Ne jamais inventer. Si manquant, laisser vide.\n"
+        "Renvoie UNIQUEMENT un objet JSON avec clé 'items'."
     )
 
-
-def get_llm_strategy() -> LLMExtractionStrategy:
-    """Configure la stratégie d'extraction par LLM"""
     return LLMExtractionStrategy(
-        provider="groq/deepseek-r1-distill-llama-70b",  # Fournisseur du modèle LLM
-        api_token=os.getenv("GROQ_API_KEY"),  # Token d'API pour l'authentification
-        schema=SalleDeSport.model_json_schema(),  # Schéma JSON du modèle de données
-        extraction_type="schema",  # Type d'extraction à effectuer
-        instruction=(
-            "Extrait toutes les salles de sport avec les données 'nom', 'adresse', 'description', 'note', "
-            "'lien_annonce'"
-        ),  # Instructions pour le LLM
-        input_format="markdown",  # Format du contenu d'entrée
-        verbose=True,  # Active les logs détaillés
+        provider="openai",  # ✅ OBLIGATOIRE
+        api_token=os.getenv("OPENROUTER_API_KEY"),
+        model="meta-llama/llama-3.2-3b-instruct:free",  # ✅ Stable & free
+        api_base="https://openrouter.ai/api/v1",  # ✅ Sans espace !
+        schema=schema,
+        extraction_type="schema",
+        instruction=instruction,
+        input_format="html",
+        verbose=False,
     )
 
 
-async def check_no_results(
-    crawler: AsyncWebCrawler,
-    url: str,
-    session_id: str,
-) -> bool:
-    """Vérifie si la page indique qu'aucun résultat n'a été trouvé"""
-    result = await crawler.arun(
-        url=url,
-        config=CrawlerRunConfig(
-            cache_mode=CacheMode.BYPASS,
-            session_id=session_id,
-        ),
-    )
+# --- DÉTECTION FIN ---
+async def check_no_results(crawler, url: str, session_id: str) -> bool:
+    from crawl4ai import CrawlerRunConfig, CacheMode
 
-    if result.success:
-        if "Désolés, nous n'avons pas ça sous la main !" in result.cleaned_html:
-            return True
-    else:
-        print(
-            f"Erreur lors de la vérification de la page pour 'Aucun résultat': {result.error_message}"
+    try:
+        result = await crawler.arun(
+            url=url,
+            config=CrawlerRunConfig(
+                cache_mode=CacheMode.BYPASS,
+                session_id=session_id,
+                css_selector="body",
+                wait_for="body",
+                page_timeout=20000,
+            ),
         )
+        if not result.success or not result.cleaned_html:
+            return False
 
-    return False
+        phrases = [
+            "Désolés, nous n'avons pas ça sous la main !",
+            "Aucun produit ne correspond",
+            "0 résultat",
+            "Aucun article trouvé",
+        ]
+        html = result.cleaned_html.lower()
+        return any(p.lower() in html for p in phrases)
+    except Exception:
+        return False
 
 
+# --- EXTRACTION PAGE — ROBUSTE ---
 async def fetch_and_process_page(
-    crawler: AsyncWebCrawler,
+    crawler,
     numero_page: int,
     base_url: str,
     css_selector: str,
-    llm_strategy: LLMExtractionStrategy,
+    llm_strategy,
     session_id: str,
     required_keys: List[str],
     noms_vus: Set[str],
 ) -> Tuple[List[dict], bool]:
-    """Récupère et traite une page de résultats"""
+    sep = "&" if "?" in base_url else "?"
+    url = f"{base_url}{sep}page={numero_page}"
+    print(f"➡️ Page {numero_page}")
 
-    url = f"{base_url}&page={numero_page}"
-    print(f"Chargement de la page {numero_page}...")
+    if await check_no_results(crawler, url, session_id):
+        return [], True
 
-    await asyncio.sleep(6)  # Temps de pause ajustable
+    from crawl4ai import CrawlerRunConfig, CacheMode
 
-    # Vérifie si le message "Aucun résultat" est présent
-    aucun_resultat = await check_no_results(crawler, url, session_id)
-    if aucun_resultat:
-        return [], True  # Plus de résultats, signal d'arrêt du crawling
+    try:
+        result = await crawler.arun(
+            url=url,
+            config=CrawlerRunConfig(
+                cache_mode=CacheMode.BYPASS,
+                extraction_strategy=llm_strategy,
+                css_selector=css_selector,
+                session_id=session_id,
+                wait_for=f"{css_selector}:first-of-type",  # ✅ Pas networkidle !
+                page_timeout=45000,
+            ),
+        )
 
-    # Récupère le contenu de la page avec la stratégie d'extraction
-    result = await crawler.arun(
-        url=url,
-        config=CrawlerRunConfig(
-            cache_mode=CacheMode.BYPASS,  # N'utilise pas le cache
-            extraction_strategy=llm_strategy,  # Stratégie d'extraction
-            css_selector=css_selector,  # Sélecteur CSS pour cibler le contenu
-            session_id=session_id,  # ID unique pour la session de crawl
-        ),
-    )
+        if not result.success:
+            print(f"❌ Page {numero_page} échouée.")
+            return [], False
 
-    if not (result.success and result.extracted_content):
-        print(f"Erreur lors de la récupération de la page {numero_page}: {result.error_message}")
+        if not result.extracted_content:
+            print(f"⚠️ Page {numero_page} : contenu extrait vide.")
+            return [], False
+
+        # 🔍 Parsing sécurisé
+        raw = result.extracted_content.strip()
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            # Tentative : extraire bloc JSON dans du texte
+            match = re.search(r"\{.*\"items\".*\}", raw, re.DOTALL)
+            if not match:
+                print(f"⚠️ Page {numero_page} : JSON non trouvé dans : {raw[:200]}...")
+                return [], False
+            try:
+                data = json.loads(match.group())
+            except:
+                print(f"⚠️ Page {numero_page} : parsing JSON échoué.")
+                return [], False
+
+        items = data.get("items", []) if isinstance(data, dict) else data
+        if not isinstance(items, list):
+            items = []
+
+        valides = []
+        for item in items:
+            vetement = {
+                "modele": str(item.get("modele", "")).strip(),
+                "description": str(item.get("description", "")).strip(),
+                "prix": str(item.get("prix", "")).strip(),
+            }
+
+            # Nettoyage prix : "53,90 €" → "53.90"
+            prix = vetement["prix"]
+            if prix:
+                prix = re.sub(r"[^\d.,]", "", prix)
+                prix = prix.replace(",", ".")
+                parts = prix.split(".")
+                if len(parts) > 2:
+                    prix = parts[0] + "." + "".join(parts[1:])
+                vetement["prix"] = prix
+
+            if not is_complete_vetement(vetement, required_keys):
+                continue
+            if is_duplicate_vetement(vetement["modele"], noms_vus):
+                continue
+
+            noms_vus.add(vetement["modele"])
+            valides.append(vetement)
+
+        print(f"✅ Page {numero_page} : {len(valides)} vêtements")
+        return valides, len(valides) == 0 and len(items) > 0
+
+    except Exception as e:
+        print(f"💥 Erreur page {numero_page} : {e}")
         return [], False
-
-    # Parse le contenu extrait
-    donnees_extraites = json.loads(result.extracted_content)
-    if not donnees_extraites:
-        print(f"Aucune salle trouvée sur la page {numero_page}.")
-        return [], False
-
-    # Après l'analyse du contenu extrait
-    print("Données extraites:", donnees_extraites)
-
-    # Traitement des salles
-    salles_completes = []
-    for salle in donnees_extraites:
-        # Debug: Affiche chaque salle pour comprendre sa structure
-        print("Traitement de la salle:", salle)
-
-        # Ignore la clé 'error' si elle est False
-        if salle.get("error") is False:
-            salle.pop("error", None)  # Supprime la clé 'error' si False
-
-        if not is_complete_salle(salle, required_keys):
-            continue  # Ignore les salles incomplètes
-
-        if is_duplicate_salle(salle["nom"], noms_vus):
-            print(f"Salle en double '{salle['nom']}' trouvée. Ignorée.")
-            continue  # Ignore les doublons
-
-        # Ajoute la salle à la liste
-        noms_vus.add(salle["nom"])
-        salles_completes.append(salle)
-
-    if not salles_completes:
-        print(f"Aucune salle complète trouvée sur la page {numero_page}.")
-        return [], False
-
-    print(f"Extraction de {len(salles_completes)} salles de la page {numero_page}.")
-    return salles_completes, False  # Continue le crawling

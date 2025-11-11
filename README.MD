@@ -1,78 +1,110 @@
-# Crawler Deep Seek pour Salles de Sport
+🎿 SkiWebShop Scraper — Extraction de sous-pulls de ski
+Script Python automatisé pour extraire tous les sous-pulls de ski femmes depuis skiwebshop.fr , avec export en JSON, CSV et Excel. 
 
-Ce projet est un crawler web construit avec Python qui extrait des données de salles de sport d'un site web en utilisant la programmation asynchrone avec Crawl4AI. Il utilise une stratégie d'extraction basée sur un modèle de langage et sauvegarde les données collectées dans un fichier CSV.
+✅ 332 produits bruts → 137 modèles uniques (dé-duplication par marque + modèle)
+✅ Sans LLM ni API tierce → 100 % fiable, rapide, et reproductible
+✅ Pagination automatique, extraction robuste (prix, réduction, marque, modèle)
 
-## Fonctionnalités
+📦 Fonctionnalités
+🔍 Scraping multi-pages (jusqu’à la fin des résultats)
+🧹 Nettoyage et dé-duplication intelligente
+💰 Extraction de :
+Marque (ex: O'Neill, Regatta)
+Modèle (ex: Fwc'Cruz pull de ski femmes)
+Prix (ex: 46.90)
+Réduction (ex: -6%)
+📤 Export dans 3 formats :
+JSON (structuré, pour API/CRM)
+CSV (UTF-8-BOM, compatible Excel FR)
+Excel (.xlsx, avec mise en forme via pandas)
+📊 Statistiques : prix moyen, min, max
+🚀 Démarrage rapide
+1. Prérequis
+Python ≥ 3.9
+Environnement virtuel (recommandé)
+2. Installation
+bash
 
-- Crawling web asynchrone utilisant Crawl4AI  
-- Extraction de données alimentée par un modèle de langage (LLM)  
-- Export CSV des informations des salles de sport  
-- Structure de code modulaire et facile à suivre, idéale pour les débutants  
 
-## Structure du Projet
+# Cloner ou copier le projet
+git clone https://github.com/votre-nom/ski-scraper.git
+cd ski-scraper
 
-```
-.
-├── main.py               # Point d'entrée principal du crawler
-├── config.py             # Contient les constantes de configuration (URL de base, sélecteurs CSS, etc.)
-├── models
-│   └── gym.py            # Définit le modèle de données Salle de Sport avec Pydantic
-├── utils
-│   ├── __init__.py       # Marqueur de package (vide) pour utils
-│   ├── data_utils.py     # Fonctions utilitaires pour le traitement et la sauvegarde des données
-│   └── scraper_utils.py  # Fonctions utilitaires pour configurer et exécuter le crawler
-├── requirements.txt      # Dépendances des packages Python
-├── .gitignore            # Fichier Git ignore (ex: exclut .env et fichiers CSV)
-└── README.md             # Ce fichier
-```
+# Créer et activer un environnement (optionnel mais conseillé)
+python -m venv venv
+venv\Scripts\activate   # Windows
+# source venv/bin/activate  # Linux/macOS
 
-## Installation
-
-### 1. Créer et Activer un Environnement Conda
-
-```bash
-conda create -n deep-seek-crawler python=3.12 -y
-conda activate deep-seek-crawler
-```
-
-### 2. Installer les Dépendances
-
-```bash
+# Installer les dépendances
 pip install -r requirements.txt
-```
 
-### 3. Configurer vos Variables d'Environnement  
+# Installer Chromium (obligatoire pour Playwright)
+playwright install chromium
+# Cloner ou copier le projet
+git clone https://github.com/votre-nom/ski-scraper.git
+cd ski-scraper
 
-Créez un fichier `.env` dans le répertoire racine avec un contenu similaire à:
+# Créer et activer un environnement (optionnel mais conseillé)
+python -m venv venv
+venv\Scripts\activate   # Windows
+# source venv/bin/activate  # Linux/macOS
 
-```env
-GROQ_API_KEY=votre_clé_api_groq_ici
-```
+# Installer les dépendances
+pip install -r requirements.txt
 
-*(Note: Le fichier `.env` est dans votre .gitignore, il ne sera donc pas poussé vers le contrôle de version.)*
+# Installer Chromium (obligatoire pour Playwright)
+playwright install chromium
+3. Exécution
+bash
 
-## Utilisation
+python scrape_and_export.py
+➡️ Les fichiers sont sauvegardés dans ./exports/ :
 
-Pour démarrer le crawler, exécutez:
 
-```bash
-python main.py
-```
+exports/
+├── sous_pulls_ski_137_20251111_184523.json
+├── sous_pulls_ski_137_20251111_184523.csv
+└── sous_pulls_ski_137_20251111_184523.xlsx  (si pandas installé)
 
-Le script va crawler le site web spécifié, extraire les données page par page, et sauvegarder les salles de sport complètes dans un fichier `salles_sport_completes.csv` dans le répertoire du projet. De plus, les statistiques d'utilisation de la stratégie LLM seront affichées après le crawling.
+📁 Structure du projet
 
-## Configuration
+ski-scraper/
+├── scrape_and_export.py     # ✅ Script principal
+├── requirements.txt         # Dépendances
+├── .env                     # Variables d'environnement (optionnel)
+├── utils/                   # Helpers (ex: scraper_utils.py)
+└── exports/                 # 📁 Généré automatiquement
+🛠️ Personnalisation
+URL cible
+scrape_and_export.py
+BASE_URL = "..."
+Sélecteur CSS
+scrape_and_export.py
+CSS_SELECTOR = "li.product-item"
+Format date export
+scrape_and_export.py
+time.strftime("%Y%m%d_%H%M%S")
 
-Le fichier `config.py` contient les constantes clés utilisées dans le projet:
+⚠️ Limites & Bonnes pratiques
+Le site utilise du JavaScript → le script attend 2s après chargement (ajustable via js_code).
+Respectez robots.txt et la fréquence de requêtes (await asyncio.sleep(1) entre pages).
+En cas de blocage (CAPTCHA), passez à l’API backend ou utilisez un proxy rotatif.
+📄 Exemple de sortie (extrait)
+json
 
-- **BASE_URL**: L'URL du site web à partir duquel extraire les données des salles.  
-- **CSS_SELECTOR**: Chaîne de sélecteur CSS utilisée pour cibler le contenu des salles.  
-- **REQUIRED_KEYS**: Liste des champs requis pour considérer une salle comme complète.  
 
-Vous pouvez modifier ces valeurs selon vos besoins.
 
-## Notes Supplémentaires
-
-- **Journalisation:** Le projet utilise actuellement des instructions `print` pour les messages d'état. Pour la production ou le développement ultérieur, envisagez d'intégrer le module `logging` de Python.  
-- **Améliorations:** Le code est structuré en plusieurs modules pour maintenir la séparation des préoccupations, facilitant la compréhension et l'extension des fonctionnalités pour les débutants.  
-- **Dépendances:** Assurez-vous que les versions des packages spécifiées dans `requirements.txt` sont installées pour éviter les problèmes de compatibilité.  
+[
+  {
+    "marque": "O'Neill",
+    "modele": "Fwc'Cruz pull de ski femmes",
+    "prix": "46.90",
+    "reduction": "-6%"
+  },
+  {
+    "marque": "Regatta",
+    "modele": "Yonder II pull de ski femmes",
+    "prix": "34.90",
+    "reduction": "-30%"
+  }
+]

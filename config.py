@@ -1,11 +1,3 @@
-# config.py
-
-BASE_URL = "https://www.masalledesport.com/recherche?lat=48.8575475&lng=2.3513765&city=Paris"
-CSS_SELECTOR = "[class^='border-b border-gray-300 pb-8']"
-REQUIRED_KEYS = [
-    "nom",
-    "adresse",
-    "description",
-    "note",
-    "lien_annonce",
-]
+BASE_URL = "https://www.skiwebshop.fr/femmes/tenues-de-ski/sous-pulls-de-ski"
+CSS_SELECTOR = "li.product-item"
+REQUIRED_KEYS = ["modele", "description", "prix"]
