@@ -1,18 +1,2 @@
-# requirements.txt
-
-# Core scraping
-crawl4ai==0.4.247
-playwright==1.48.0
-beautifulsoup4==4.12.3
-lxml==4.9.4
-
-# Data handling & export
+streamlit==1.39.0
 pandas==2.2.3
-openpyxl==3.1.5
-
-# Environment & utils
-python-dotenv==1.0.1
-pydantic==2.10.3
-
-# Async support (inclut dans crawl4ai mais explicite pour sécurité)
-aiohttp==3.10.5
