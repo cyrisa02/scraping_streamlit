@@ -147,11 +147,21 @@ if search:
 if marques:
     filtered = filtered[filtered["marque"].isin(marques)]
 
+# Prix
 filtered = filtered[
     (filtered["prix_num"] >= price_range[0]) &
-    (filtered["prix_num"] <= price_range[1]) &
-    (filtered["reduction_num"] <= reduc_min)
+    (filtered["prix_num"] <= price_range[1])
 ]
+
+# Réduction : filtre seulement si reduction_num est numérique
+if pd.notna(reduc_min):
+    filtered = filtered[
+        (pd.notna(filtered["reduction_num"])) &  # ✅ Correction ici
+        (filtered["reduction_num"] <= reduc_min)
+    ]
+else:
+    # Si aucun filtre sur réduction, ne rien faire
+    pass
 
 # Tri
 if sort_by == "Prix croissant":
@@ -164,6 +174,7 @@ elif sort_by == "Marque":
     filtered = filtered.sort_values("marque")
 elif sort_by == "Modèle":
     filtered = filtered.sort_values("modele")
+
 
 # === STATS ===
 col1, col2, col3, col4 = st.columns(4)
